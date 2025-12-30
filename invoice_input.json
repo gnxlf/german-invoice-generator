@@ -1,0 +1,79 @@
+{
+  "invoiceNumber": "RE-000001",
+  "orderNumber": "ABC123XY",
+  "issueDate": "2025-12-29",
+  "deliveryDate": "29.12.2025",
+  
+  "sender": {
+    "name": "Max Mustermann",
+    "street": "Musterstraße 123",
+    "postalCode": "12345",
+    "city": "Musterstadt",
+    "country": "Deutschland",
+    "email": "kontakt@beispiel.de"
+  },
+  
+  "recipient": {
+    "name": "Beispiel Firma GmbH",
+    "addressLine2": "",
+    "street": "Beispielweg 456",
+    "postalCode": "67890",
+    "city": "Beispielort",
+    "country": "Deutschland"
+  },
+  
+  "taxIdentifiers": {
+    "ustIdNr": "DE123456789"
+  },
+  
+  "bankDetails": {
+    "bankName": "Beispielbank AG",
+    "iban": "DE89370400440532013000",
+    "bic": "COBADEFFXXX",
+    "accountHolder": "Max Mustermann"
+  },
+  
+  "lineItems": [
+    {
+      "position": 1,
+      "description": "Beispiel-Widget Pro 3000 - Modell A",
+      "quantity": 1,
+      "unit": "Stück",
+      "unitPrice": 159.00,
+      "taxRate": 19
+    },
+    {
+      "position": 2,
+      "description": "Beispiel-Widget Pro 3000 - Modell B",
+      "quantity": 2,
+      "unit": "Stück",
+      "unitPrice": 159.00,
+      "taxRate": 0
+    },
+    {
+      "position": 3,
+      "description": "Beispiel-Widget Pro 3000 - Modell C",
+      "quantity": 1,
+      "unit": "Stück",
+      "unitPrice": 159.00,
+      "taxRate": 7
+    }
+  ],
+
+  "shipping": {
+    "amount": 5.95,
+    "description": "Versandkosten"
+  },
+  
+  "logo": {
+    "logoPath": "logo_github.png",
+    "logoBase64": null,
+    "maxWidth": 150,
+    "maxHeight": 60
+  },
+  
+  "currency": "EUR",
+  "accentColor": "#000000",
+  
+  "notes": "Bitte veranlassen Sie keine Zahlungen auf dieses Konto. Please do not issue any payments to this account."
+}

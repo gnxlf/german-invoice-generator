@@ -1,0 +1,52 @@
+{
+  "name": "custom-invoice-generator",
+  "version": "1.0.0",
+  "description": "TypeScript-based PDF generator for legally compliant German invoices according to §14 UStG",
+  "main": "dist/invoice-generator.js",
+  "types": "dist/invoice-generator.d.ts",
+  "bin": {
+    "invoice-generator": "dist/index.js"
+  },
+  "files": [
+    "dist/**/*",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "generate": "tsc && node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "invoice",
+    "pdf",
+    "german",
+    "rechnung",
+    "pdfmake",
+    "typescript",
+    "billing",
+    "umsatzsteuergesetz"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/username/custom_invoice_gen.git"
+  },
+  "bugs": {
+    "url": "https://github.com/username/custom_invoice_gen/issues"
+  },
+  "homepage": "https://github.com/username/custom_invoice_gen#readme",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "dependencies": {
+    "pdfmake": "^0.2.10"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/pdfmake": "^0.2.9",
+    "typescript": "^5.3.0"
+  }
+}
