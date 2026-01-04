@@ -199,6 +199,29 @@ function drawRect(page, x, y, width, height, color) {
     });
 }
 /**
+ * Bricht Text in mehrere Zeilen um, wenn er breiter als maxWidth ist
+ */
+function wrapText(text, font, fontSize, maxWidth) {
+    const words = text.split(' ');
+    const lines = [];
+    let currentLine = '';
+    for (const word of words) {
+        const testLine = currentLine ? `${currentLine} ${word}` : word;
+        const testWidth = font.widthOfTextAtSize(testLine, fontSize);
+        if (testWidth > maxWidth && currentLine) {
+            lines.push(currentLine);
+            currentLine = word;
+        }
+        else {
+            currentLine = testLine;
+        }
+    }
+    if (currentLine) {
+        lines.push(currentLine);
+    }
+    return lines;
+}
+/**
  * Validates invoice data for German compliance requirements.
  * @throws Error if validation fails
  */
@@ -343,23 +366,36 @@ async function generateInvoiceBuffer(invoiceData) {
     // Header-Linie unten
     drawLine(page, margin, currentY, tableRight, currentY, 1, blackText);
     // Zeilen
+    const lineHeight = 11; // Zeilenhöhe für mehrzeiligen Text
+    const descriptionMaxWidth = colWidths[1] - 10; // Maximale Breite für Beschreibung
     for (let i = 0; i < invoiceData.lineItems.length; i++) {
         const item = invoiceData.lineItems[i];
         const position = item.position || i + 1;
         const lineGross = item.quantity * item.unitPrice;
+        // Beschreibung in Zeilen umbrechen
+        const descriptionLines = wrapText(item.description, helvetica, 9, descriptionMaxWidth);
+        const numLines = descriptionLines.length;
+        const dynamicRowHeight = Math.max(rowHeight, numLines * lineHeight + 10);
         // Alternierende Hintergrundfarbe
         if (i % 2 === 1) {
-            drawRect(page, margin, currentY - rowHeight, contentWidth, rowHeight, lightGrayBg);
+            drawRect(page, margin, currentY - dynamicRowHeight, contentWidth, dynamicRowHeight, lightGrayBg);
         }
         const cellY = currentY - 15;
         drawText(page, position.toString(), colX[0] + 10, cellY, helvetica, 9, blackText);
-        drawText(page, item.description, colX[1] + 5, cellY, helvetica, 9, blackText);
+        // Mehrzeilige Beschreibung zeichnen
+        for (let lineIdx = 0; lineIdx < descriptionLines.length; lineIdx++) {
+            drawText(page, descriptionLines[lineIdx], colX[1] + 5, cellY - (lineIdx * lineHeight), helvetica, 9, blackText);
+        }
         drawRightAlignedText(page, item.quantity.toString(), colX[2] + colWidths[2] - 5, cellY, helvetica, 9, blackText);
         drawText(page, item.unit, colX[3] + 10, cellY, helvetica, 9, blackText);
         drawRightAlignedText(page, formatCurrency(item.unitPrice, currency), colX[4] + colWidths[4] - 5, cellY, helvetica, 9, blackText);
         drawRightAlignedText(page, `${item.taxRate}%`, colX[5] + colWidths[5] - 5, cellY, helvetica, 9, blackText);
         drawRightAlignedText(page, formatCurrency(lineGross, currency), colX[6] + colWidths[6] - 5, cellY, helvetica, 9, blackText);
-        currentY -= rowHeight;
+        currentY -= dynamicRowHeight;
+        // Hellgrauer Trennstrich zwischen Zeilen (nicht nach der letzten)
+        if (i < invoiceData.lineItems.length - 1) {
+            drawLine(page, margin, currentY, tableRight, currentY, 1, lineGray);
+        }
     }
     // Tabelle abschließende Linie
     drawLine(page, margin, currentY, tableRight, currentY, 1, blackText);

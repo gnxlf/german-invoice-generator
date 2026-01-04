@@ -36,32 +36,24 @@
   "lineItems": [
     {
       "position": 1,
-      "description": "Beispiel-Widget Pro 3000 - Modell A",
+      "description": "Canon PowerShot SX740 HS Lite Digitalkamera 20,3 MP 40x 4K",
       "quantity": 1,
       "unit": "Stück",
-      "unitPrice": 159.00,
+      "unitPrice": 610.00,
       "taxRate": 19
     },
     {
       "position": 2,
-      "description": "Beispiel-Widget Pro 3000 - Modell B",
+      "description": "Canon PowerShot SX740 HS Lite Digitalkamera 20,3 MP 40x 4K Silber",
       "quantity": 2,
       "unit": "Stück",
-      "unitPrice": 159.00,
-      "taxRate": 0
-    },
-    {
-      "position": 3,
-      "description": "Beispiel-Widget Pro 3000 - Modell C",
-      "quantity": 1,
-      "unit": "Stück",
-      "unitPrice": 159.00,
-      "taxRate": 7
+      "unitPrice": 550.00,
+      "taxRate": 19
     }
   ],
 
   "shipping": {
-    "amount": 5.95,
+    "amount": 0,
     "description": "Versandkosten"
   },
   
