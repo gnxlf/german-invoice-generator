@@ -1,7 +1,18 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import type { TDocumentDefinitions, Content, TableCell, StyleDictionary } from 'pdfmake/interfaces';
+import { PDFDocument, PDFPage, PDFFont, rgb, StandardFonts } from 'pdf-lib';
 import { InvoiceData, InvoiceTotals, LineItem, ShippingCost } from './types';
+
+// Farben als RGB-Werte (0-1)
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!result) return { r: 0, g: 0, b: 0 };
+  return {
+    r: parseInt(result[1], 16) / 255,
+    g: parseInt(result[2], 16) / 255,
+    b: parseInt(result[3], 16) / 255,
+  };
+}
 
 function formatCurrency(amount: number, currency: string = 'EUR'): string {
   return new Intl.NumberFormat('de-DE', {
@@ -89,22 +100,21 @@ function calculateTotals(lineItems: LineItem[], shipping?: ShippingCost): Invoic
   };
 }
 
-function loadLogo(invoiceData: InvoiceData): string | null {
+async function loadLogo(invoiceData: InvoiceData): Promise<Uint8Array | null> {
   if (!invoiceData.logo) {
     return null;
   }
 
   if (invoiceData.logo.logoBase64) {
-    return invoiceData.logo.logoBase64;
+    const base64Data = invoiceData.logo.logoBase64.replace(/^data:image\/\w+;base64,/, '');
+    return Uint8Array.from(Buffer.from(base64Data, 'base64'));
   }
 
   if (invoiceData.logo.logoPath) {
     try {
       const logoPath = path.resolve(invoiceData.logo.logoPath);
       const logoBuffer = fs.readFileSync(logoPath);
-      const extension = path.extname(logoPath).toLowerCase().replace('.', '');
-      const mimeType = extension === 'png' ? 'image/png' : 'image/jpeg';
-      return `data:${mimeType};base64,${logoBuffer.toString('base64')}`;
+      return new Uint8Array(logoBuffer);
     } catch (error) {
       console.warn(`Warning: Could not load logo from ${invoiceData.logo.logoPath}`);
       return null;
@@ -114,415 +124,93 @@ function loadLogo(invoiceData: InvoiceData): string | null {
   return null;
 }
 
-function generateDocumentDefinition(invoiceData: InvoiceData): TDocumentDefinitions {
-  const currency = invoiceData.currency || 'EUR';
-  const accentColor = invoiceData.accentColor || '#374151';
-  const totals = calculateTotals(invoiceData.lineItems, invoiceData.shipping);
-  const logo = loadLogo(invoiceData);
-
-  const styles: StyleDictionary = {
-    header: {
-      fontSize: 28,
-      bold: false,
-      color: '#111827',
-      margin: [0, 0, 0, 10],
-    },
-    subheader: {
-      fontSize: 11,
-      bold: true,
-      color: '#6b7280',
-      characterSpacing: 1,
-      margin: [0, 10, 0, 8],
-    },
-    invoiceNumber: {
-      fontSize: 9,
-      bold: true,
-      color: '#111827',
-    },
-    tableHeader: {
-      bold: true,
-      fontSize: 9,
-      color: '#6b7280',
-      fillColor: '#f9fafb',
-      margin: [5, 10, 5, 10],
-    },
-    tableCell: {
-      fontSize: 9,
-      color: '#000000',
-      margin: [5, 8, 5, 8],
-    },
-    tableCellRight: {
-      fontSize: 9,
-      color: '#000000',
-      alignment: 'right' as const,
-      margin: [5, 8, 5, 8],
-    },
-    totalLabel: {
-      fontSize: 9,
-      color: '#000000',
-      margin: [0, 1, 0, 1],
-    },
-    totalValue: {
-      fontSize: 9,
-      color: '#000000',
-      alignment: 'right' as const,
-      margin: [0, 1, 0, 1],
-    },
-    grossTotalLabel: {
-      fontSize: 11,
-      bold: true,
-      color: '#000000',
-    },
-    grossTotal: {
-      fontSize: 11,
-      bold: true,
-      color: '#000000',
-    },
-    footer: {
-      fontSize: 8,
-      color: '#6b7280',
-    },
-    senderSmall: {
-      fontSize: 8,
-      color: '#6b7280',
-    },
-    recipientName: {
-      fontSize: 11,
-      bold: true,
-    },
-    recipientAddress: {
-      fontSize: 11,
-    },
-    metaLabel: {
-      fontSize: 9,
-      color: '#6b7280',
-    },
-    metaValue: {
-      fontSize: 9,
-      bold: true,
-    },
-  };
-
-  const senderLine = `${invoiceData.sender.name} · ${invoiceData.sender.street} · ${invoiceData.sender.postalCode} ${invoiceData.sender.city}`;
-
-  const recipientBlock: Content[] = [
-    { text: senderLine, style: 'senderSmall', margin: [0, 0, 0, 5] },
-    { text: invoiceData.recipient.name, style: 'recipientName' },
-  ];
-  if (invoiceData.recipient.addressLine2) {
-    recipientBlock.push({ text: invoiceData.recipient.addressLine2, style: 'recipientAddress' });
+function getLogoType(invoiceData: InvoiceData): 'png' | 'jpg' | null {
+  if (!invoiceData.logo) return null;
+  
+  if (invoiceData.logo.logoBase64) {
+    if (invoiceData.logo.logoBase64.includes('image/png')) return 'png';
+    return 'jpg';
   }
-  recipientBlock.push({ text: invoiceData.recipient.street, style: 'recipientAddress' });
-  recipientBlock.push({
-    text: `${invoiceData.recipient.postalCode} ${invoiceData.recipient.city}`,
-    style: 'recipientAddress',
+  
+  if (invoiceData.logo.logoPath) {
+    const ext = path.extname(invoiceData.logo.logoPath).toLowerCase();
+    if (ext === '.png') return 'png';
+    return 'jpg';
+  }
+  
+  return null;
+}
+
+// Hilfsfunktionen für Text-Rendering
+function drawText(
+  page: PDFPage,
+  text: string,
+  x: number,
+  y: number,
+  font: PDFFont,
+  size: number,
+  color: { r: number; g: number; b: number } = { r: 0, g: 0, b: 0 }
+): void {
+  page.drawText(text, {
+    x,
+    y,
+    size,
+    font,
+    color: rgb(color.r, color.g, color.b),
   });
-  if (invoiceData.recipient.country) {
-    recipientBlock.push({ text: invoiceData.recipient.country, style: 'recipientAddress' });
-  }
+}
 
-  const headerContent: Content[] = [];
-
-  if (logo) {
-    const maxWidth = invoiceData.logo?.maxWidth || 150;
-    const maxHeight = invoiceData.logo?.maxHeight || 60;
-
-    headerContent.push({
-      columns: [
-        {
-          width: '*',
-          stack: [{ text: 'RECHNUNG', style: 'header' }],
-        },
-        {
-          width: 'auto',
-          image: logo,
-          fit: [maxWidth, maxHeight],
-          alignment: 'right' as const,
-        },
-      ],
-      margin: [0, 0, 0, 20],
-    } as Content);
-  } else {
-    headerContent.push({
-      text: 'RECHNUNG',
-      style: 'header',
-      margin: [0, 0, 0, 20],
-    });
-  }
-
-  const metaRows: Content[] = [
-    {
-      columns: [
-        { text: 'Rechnungsnummer:', style: 'metaLabel', width: 95 },
-        { text: invoiceData.invoiceNumber, style: 'invoiceNumber', width: '*' },
-      ],
-      margin: [0, 0, 0, 3] as [number, number, number, number],
-    },
-  ];
-
-  if (invoiceData.orderNumber) {
-    metaRows.push({
-      columns: [
-        { text: 'Bestellnummer:', style: 'metaLabel', width: 95 },
-        { text: invoiceData.orderNumber, style: 'metaValue', width: '*' },
-      ],
-      margin: [0, 0, 0, 3] as [number, number, number, number],
-    });
-  }
-
-  metaRows.push(
-    {
-      columns: [
-        { text: 'Rechnungsdatum:', style: 'metaLabel', width: 95 },
-        { text: formatDate(invoiceData.issueDate), style: 'metaValue', width: '*' },
-      ],
-      margin: [0, 0, 0, 3] as [number, number, number, number],
-    },
-    {
-      columns: [
-        { text: 'Lieferdatum:', style: 'metaLabel', width: 95 },
-        { text: invoiceData.deliveryDate, style: 'metaValue', width: '*' },
-      ],
-      margin: [0, 0, 0, 3] as [number, number, number, number],
-    }
-  );
-
-  const metaData: Content = {
-    columns: [
-      {
-        width: '*',
-        stack: recipientBlock,
-        margin: [0, 15, 0, 0],
-      },
-      {
-        width: 180,
-        stack: metaRows,
-        alignment: 'right',
-      },
-    ],
-    margin: [0, 0, 0, 30],
-  };
-
-  const tableBody: TableCell[][] = [
-    [
-      { text: 'Pos.', style: 'tableHeader', alignment: 'center' },
-      { text: 'Beschreibung', style: 'tableHeader' },
-      { text: 'Menge', style: 'tableHeader', alignment: 'right' },
-      { text: 'Einheit', style: 'tableHeader', alignment: 'center' },
-      { text: 'Einzelpreis', style: 'tableHeader', alignment: 'right' },
-      { text: 'USt.', style: 'tableHeader', alignment: 'right' },
-      { text: 'Gesamt (brutto)', style: 'tableHeader', alignment: 'right' },
-    ],
-  ];
-
-  invoiceData.lineItems.forEach((item, index) => {
-    const position = item.position || index + 1;
-    const lineGross = item.quantity * item.unitPrice;
-    const fillColor = index % 2 === 1 ? '#f9fafb' : undefined;
-
-    tableBody.push([
-      { text: position.toString(), style: 'tableCell', alignment: 'center', fillColor },
-      { text: item.description, style: 'tableCell', fillColor },
-      { text: item.quantity.toString(), style: 'tableCellRight', fillColor },
-      { text: item.unit, style: 'tableCell', alignment: 'center', fillColor },
-      { text: formatCurrency(item.unitPrice, currency), style: 'tableCellRight', fillColor },
-      { text: `${item.taxRate}%`, style: 'tableCellRight', fillColor },
-      { text: formatCurrency(lineGross, currency), style: 'tableCellRight', fillColor },
-    ]);
+function drawRightAlignedText(
+  page: PDFPage,
+  text: string,
+  rightX: number,
+  y: number,
+  font: PDFFont,
+  size: number,
+  color: { r: number; g: number; b: number } = { r: 0, g: 0, b: 0 }
+): void {
+  const textWidth = font.widthOfTextAtSize(text, size);
+  page.drawText(text, {
+    x: rightX - textWidth,
+    y,
+    size,
+    font,
+    color: rgb(color.r, color.g, color.b),
   });
+}
 
-  const totalsBody: TableCell[][] = [];
+function drawLine(
+  page: PDFPage,
+  startX: number,
+  startY: number,
+  endX: number,
+  endY: number,
+  thickness: number = 0.5,
+  color: { r: number; g: number; b: number } = { r: 0, g: 0, b: 0 }
+): void {
+  page.drawLine({
+    start: { x: startX, y: startY },
+    end: { x: endX, y: endY },
+    thickness,
+    color: rgb(color.r, color.g, color.b),
+  });
+}
 
-  if (totals.shipping.gross > 0) {
-    const shippingDescription = invoiceData.shipping?.description || 'Versandkosten';
-    totalsBody.push([
-      { text: `${shippingDescription}:`, style: 'totalLabel', colSpan: 6, alignment: 'right' },
-      {}, {}, {}, {}, {},
-      { text: formatCurrency(totals.shipping.gross, currency), style: 'totalValue' },
-    ]);
-  }
-
-  totalsBody.push([
-    { text: 'Gesamt Netto:', style: 'totalLabel', colSpan: 6, alignment: 'right' },
-    {}, {}, {}, {}, {},
-    { text: formatCurrency(totals.netTotal, currency), style: 'totalValue' },
-  ]);
-
-  const sortedTaxRates = Array.from(totals.taxAmounts.entries()).sort((a, b) => a[0] - b[0]);
-  for (const [rate, amount] of sortedTaxRates) {
-    totalsBody.push([
-      { text: `${rate}% Umsatzsteuer:`, style: 'totalLabel', colSpan: 6, alignment: 'right' },
-      {}, {}, {}, {}, {},
-      { text: formatCurrency(amount, currency), style: 'totalValue' },
-    ]);
-  }
-
-  const notesSection: Content[] = invoiceData.notes
-    ? [
-        { text: 'Hinweise', style: 'subheader', margin: [0, 10, 0, 5] },
-        { text: invoiceData.notes, fontSize: 9, color: '#000000' },
-      ]
-    : [];
-
-  const addressColumn = [
-    invoiceData.sender.name,
-    invoiceData.sender.street,
-    `${invoiceData.sender.postalCode} ${invoiceData.sender.city}`,
-  ];
-  if (invoiceData.sender.country) {
-    addressColumn.push(invoiceData.sender.country);
-  }
-  if (invoiceData.sender.email) {
-    addressColumn.push(invoiceData.sender.email);
-  }
-
-  const taxColumn: string[] = [];
-  if (invoiceData.taxIdentifiers.ustIdNr) {
-    taxColumn.push(`USt.-IdNr.: ${invoiceData.taxIdentifiers.ustIdNr}`);
-  }
-  if (invoiceData.taxIdentifiers.steuernummer) {
-    taxColumn.push(`Steuernummer: ${invoiceData.taxIdentifiers.steuernummer}`);
-  }
-
-  const bankColumn = [
-    invoiceData.bankDetails.bankName,
-    `IBAN: ${invoiceData.bankDetails.iban}`,
-    `BIC: ${invoiceData.bankDetails.bic}`,
-  ];
-  if (invoiceData.bankDetails.accountHolder) {
-    bankColumn.push(invoiceData.bankDetails.accountHolder);
-  }
-
-  const docDefinition: TDocumentDefinitions = {
-    pageSize: 'A4',
-    pageOrientation: 'portrait',
-    pageMargins: [50, 50, 50, 80],
-    defaultStyle: {
-      font: 'Roboto',
-      fontSize: 10,
-      lineHeight: 1.3,
-    },
-    styles,
-    content: [
-      ...headerContent,
-      metaData,
-      {
-        table: {
-          headerRows: 1,
-          widths: [30, '*', 40, 45, 70, 40, 80],
-          body: tableBody,
-        },
-        layout: {
-          hLineWidth: (i: number, node: any) => {
-            if (i === 0) return 0;
-            if (i === 1) return 1;
-            if (i === node.table.body.length) return 1;
-            return 0;
-          },
-          vLineWidth: () => 0,
-          hLineColor: () => '#000000',
-          paddingLeft: () => 5,
-          paddingRight: () => 5,
-          paddingTop: () => 8,
-          paddingBottom: () => 8,
-        },
-      },
-      {
-        table: {
-          widths: [30, '*', 40, 45, 70, 40, 80],
-          body: totalsBody,
-        },
-        layout: {
-          hLineWidth: () => 0,
-          vLineWidth: () => 0,
-          paddingLeft: () => 0,
-          paddingRight: () => 0,
-          paddingTop: () => 1,
-          paddingBottom: () => 1,
-        },
-        margin: [0, 10, 0, 0],
-      },
-      {
-        table: {
-          widths: ['*', 'auto', 80],
-          body: [
-            [
-              { text: '', border: [false, false, false, false] },
-              { 
-                text: 'Gesamtbetrag (brutto):', 
-                style: 'grossTotalLabel', 
-                border: [false, true, false, false],
-                borderColor: ['#000000', '#000000', '#000000', '#000000'],
-                alignment: 'right',
-                margin: [0, 4, 0, 0],
-                noWrap: true,
-              },
-              { 
-                text: formatCurrency(totals.grossTotal, currency), 
-                style: 'grossTotal', 
-                border: [false, true, false, false],
-                borderColor: ['#000000', '#000000', '#000000', '#000000'],
-                alignment: 'right',
-                margin: [0, 4, 0, 0],
-              },
-            ],
-          ],
-        },
-        layout: {
-          hLineWidth: (i: number) => (i === 0 ? 1 : 0),
-          vLineWidth: () => 0,
-          hLineColor: () => '#000000',
-          paddingLeft: () => 0,
-          paddingRight: () => 0,
-          paddingTop: () => 0,
-          paddingBottom: () => 0,
-        },
-        margin: [0, 6, 0, 25],
-      },
-      ...notesSection,
-    ],
-    footer: (currentPage: number, pageCount: number) => ({
-      stack: [
-        {
-          canvas: [
-            {
-              type: 'line',
-              x1: 50,
-              y1: 0,
-              x2: 545,
-              y2: 0,
-              lineWidth: 0.5,
-              lineColor: '#e5e7eb',
-            },
-          ],
-        },
-        {
-          columns: [
-            {
-              width: '*',
-              text: addressColumn.join('\n'),
-              style: 'footer',
-              margin: [50, 8, 0, 0],
-            },
-            {
-              width: '*',
-              text: taxColumn.join('\n'),
-              style: 'footer',
-              margin: [0, 8, 0, 0],
-            },
-            {
-              width: '*',
-              text: bankColumn.join('\n'),
-              style: 'footer',
-              margin: [0, 8, 50, 0],
-            },
-          ],
-        },
-      ],
-    }),
-  };
-
-  return docDefinition;
+function drawRect(
+  page: PDFPage,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  color: { r: number; g: number; b: number }
+): void {
+  page.drawRectangle({
+    x,
+    y,
+    width,
+    height,
+    color: rgb(color.r, color.g, color.b),
+  });
 }
 
 /**
@@ -560,43 +248,271 @@ function validateInvoiceData(invoiceData: InvoiceData): void {
 export async function generateInvoiceBuffer(invoiceData: InvoiceData): Promise<Buffer> {
   validateInvoiceData(invoiceData);
 
-  // Dynamischer Import - verhindert data.trie Laden beim Modul-Import
-  const PdfPrinter = (await import('pdfmake')).default;
+  const currency = invoiceData.currency || 'EUR';
+  const totals = calculateTotals(invoiceData.lineItems, invoiceData.shipping);
 
-  const printer = new PdfPrinter({
-    Roboto: {
-      normal: 'Helvetica',
-      bold: 'Helvetica-Bold',
-      italics: 'Helvetica-Oblique',
-      bolditalics: 'Helvetica-BoldOblique',
-    },
-  });
+  // PDF Dokument erstellen
+  const pdfDoc = await PDFDocument.create();
+  
+  // Standard-Fonts laden
+  const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-  const docDefinition = generateDocumentDefinition(invoiceData);
+  // Farben definieren
+  const grayText = hexToRgb('#6b7280');
+  const blackText = { r: 0, g: 0, b: 0 };
+  const lightGrayBg = hexToRgb('#f9fafb');
+  const lineGray = hexToRgb('#e5e7eb');
 
-  // Hyphenation deaktivieren (verhindert data.trie Fehler in serverless Umgebungen)
-  (docDefinition as any).hyphenationCallback = (word: string) => [word];
+  // A4 Seite erstellen (595.28 x 841.89 Punkte)
+  const pageWidth = 595.28;
+  const pageHeight = 841.89;
+  const margin = 50;
+  const contentWidth = pageWidth - 2 * margin;
 
-  const pdfDoc = printer.createPdfKitDocument(docDefinition);
+  const page = pdfDoc.addPage([pageWidth, pageHeight]);
 
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
+  let currentY = pageHeight - margin;
 
-    pdfDoc.on('data', (chunk: Buffer) => {
-      chunks.push(chunk);
-    });
+  // === LOGO ===
+  const logoData = await loadLogo(invoiceData);
+  const logoType = getLogoType(invoiceData);
+  
+  if (logoData && logoType) {
+    try {
+      const logoImage = logoType === 'png' 
+        ? await pdfDoc.embedPng(logoData)
+        : await pdfDoc.embedJpg(logoData);
+      
+      const maxWidth = invoiceData.logo?.maxWidth || 150;
+      const maxHeight = invoiceData.logo?.maxHeight || 60;
+      
+      const scale = Math.min(maxWidth / logoImage.width, maxHeight / logoImage.height);
+      const scaledWidth = logoImage.width * scale;
+      const scaledHeight = logoImage.height * scale;
+      
+      page.drawImage(logoImage, {
+        x: pageWidth - margin - scaledWidth,
+        y: currentY - scaledHeight + 15, // Logo höher positionieren
+        width: scaledWidth,
+        height: scaledHeight,
+      });
+    } catch (error) {
+      console.warn('Warning: Could not embed logo');
+    }
+  }
 
-    pdfDoc.on('end', () => {
-      const pdfBuffer = Buffer.concat(chunks);
-      resolve(pdfBuffer);
-    });
+  // === HEADER: RECHNUNG ===
+  drawText(page, 'RECHNUNG', margin, currentY - 20, helvetica, 28, blackText);
+  currentY -= 80; // Mehr Abstand nach dem Logo
 
-    pdfDoc.on('error', (error: Error) => {
-      reject(error);
-    });
+  // === ABSENDER-ZEILE (klein) ===
+  const senderLine = `${invoiceData.sender.name} · ${invoiceData.sender.street} · ${invoiceData.sender.postalCode} ${invoiceData.sender.city}`;
+  drawText(page, senderLine, margin, currentY, helvetica, 8, grayText);
+  currentY -= 20;
 
-    pdfDoc.end();
-  });
+  // === EMPFÄNGER ===
+  drawText(page, invoiceData.recipient.name, margin, currentY, helveticaBold, 11, blackText);
+  currentY -= 14;
+
+  if (invoiceData.recipient.addressLine2) {
+    drawText(page, invoiceData.recipient.addressLine2, margin, currentY, helvetica, 11, blackText);
+    currentY -= 14;
+  }
+
+  drawText(page, invoiceData.recipient.street, margin, currentY, helvetica, 11, blackText);
+  currentY -= 14;
+
+  drawText(page, `${invoiceData.recipient.postalCode} ${invoiceData.recipient.city}`, margin, currentY, helvetica, 11, blackText);
+  currentY -= 14;
+
+  if (invoiceData.recipient.country) {
+    drawText(page, invoiceData.recipient.country, margin, currentY, helvetica, 11, blackText);
+    currentY -= 14;
+  }
+
+  // === META-DATEN (rechts ausgerichtet) ===
+  const metaX = pageWidth - margin - 180;
+  const metaLabelX = metaX;
+  const metaValueX = pageWidth - margin;
+  let metaY = pageHeight - margin - 60;
+
+  // Rechnungsnummer
+  drawText(page, 'Rechnungsnummer:', metaLabelX, metaY, helvetica, 9, grayText);
+  drawRightAlignedText(page, invoiceData.invoiceNumber, metaValueX, metaY, helveticaBold, 9, blackText);
+  metaY -= 14;
+
+  // Bestellnummer (optional)
+  if (invoiceData.orderNumber) {
+    drawText(page, 'Bestellnummer:', metaLabelX, metaY, helvetica, 9, grayText);
+    drawRightAlignedText(page, invoiceData.orderNumber, metaValueX, metaY, helveticaBold, 9, blackText);
+    metaY -= 14;
+  }
+
+  // Rechnungsdatum
+  drawText(page, 'Rechnungsdatum:', metaLabelX, metaY, helvetica, 9, grayText);
+  drawRightAlignedText(page, formatDate(invoiceData.issueDate), metaValueX, metaY, helveticaBold, 9, blackText);
+  metaY -= 14;
+
+  // Lieferdatum
+  drawText(page, 'Lieferdatum:', metaLabelX, metaY, helvetica, 9, grayText);
+  drawRightAlignedText(page, invoiceData.deliveryDate, metaValueX, metaY, helveticaBold, 9, blackText);
+
+  currentY -= 40;
+
+  // === TABELLE ===
+  // Spaltenbreiten definieren
+  const colWidths = [30, 180, 40, 45, 70, 40, 80]; // Pos, Beschr, Menge, Einh, Einzelpr, USt, Gesamt
+  const colX = [margin];
+  for (let i = 1; i < colWidths.length; i++) {
+    colX.push(colX[i - 1] + colWidths[i - 1]);
+  }
+  const tableRight = margin + colWidths.reduce((a, b) => a + b, 0);
+
+  const rowHeight = 22;
+  const headerHeight = 28;
+
+  // Tabellen-Header Hintergrund
+  drawRect(page, margin, currentY - headerHeight, contentWidth, headerHeight, lightGrayBg);
+
+  // Header-Texte
+  const headerY = currentY - 18;
+  drawText(page, 'Pos.', colX[0] + 5, headerY, helveticaBold, 9, grayText);
+  drawText(page, 'Beschreibung', colX[1] + 5, headerY, helveticaBold, 9, grayText);
+  drawRightAlignedText(page, 'Menge', colX[2] + colWidths[2] - 5, headerY, helveticaBold, 9, grayText);
+  drawText(page, 'Einheit', colX[3] + 5, headerY, helveticaBold, 9, grayText);
+  drawRightAlignedText(page, 'Einzelpreis', colX[4] + colWidths[4] - 5, headerY, helveticaBold, 9, grayText);
+  drawRightAlignedText(page, 'USt.', colX[5] + colWidths[5] - 5, headerY, helveticaBold, 9, grayText);
+  drawRightAlignedText(page, 'Gesamt (brutto)', colX[6] + colWidths[6] - 5, headerY, helveticaBold, 9, grayText);
+
+  currentY -= headerHeight;
+
+  // Header-Linie unten
+  drawLine(page, margin, currentY, tableRight, currentY, 1, blackText);
+
+  // Zeilen
+  for (let i = 0; i < invoiceData.lineItems.length; i++) {
+    const item = invoiceData.lineItems[i];
+    const position = item.position || i + 1;
+    const lineGross = item.quantity * item.unitPrice;
+
+    // Alternierende Hintergrundfarbe
+    if (i % 2 === 1) {
+      drawRect(page, margin, currentY - rowHeight, contentWidth, rowHeight, lightGrayBg);
+    }
+
+    const cellY = currentY - 15;
+
+    drawText(page, position.toString(), colX[0] + 10, cellY, helvetica, 9, blackText);
+    drawText(page, item.description, colX[1] + 5, cellY, helvetica, 9, blackText);
+    drawRightAlignedText(page, item.quantity.toString(), colX[2] + colWidths[2] - 5, cellY, helvetica, 9, blackText);
+    drawText(page, item.unit, colX[3] + 10, cellY, helvetica, 9, blackText);
+    drawRightAlignedText(page, formatCurrency(item.unitPrice, currency), colX[4] + colWidths[4] - 5, cellY, helvetica, 9, blackText);
+    drawRightAlignedText(page, `${item.taxRate}%`, colX[5] + colWidths[5] - 5, cellY, helvetica, 9, blackText);
+    drawRightAlignedText(page, formatCurrency(lineGross, currency), colX[6] + colWidths[6] - 5, cellY, helvetica, 9, blackText);
+
+    currentY -= rowHeight;
+  }
+
+  // Tabelle abschließende Linie
+  drawLine(page, margin, currentY, tableRight, currentY, 1, blackText);
+
+  currentY -= 20;
+
+  // === SUMMEN ===
+  const sumLabelX = colX[5] + colWidths[5] - 5;
+  const sumValueX = colX[6] + colWidths[6] - 5;
+
+  // Versandkosten (falls vorhanden)
+  if (totals.shipping.gross > 0) {
+    const shippingDescription = invoiceData.shipping?.description || 'Versandkosten';
+    drawRightAlignedText(page, `${shippingDescription}:`, sumLabelX, currentY, helvetica, 9, blackText);
+    drawRightAlignedText(page, formatCurrency(totals.shipping.gross, currency), sumValueX, currentY, helvetica, 9, blackText);
+    currentY -= 14;
+  }
+
+  // Gesamt Netto
+  drawRightAlignedText(page, 'Gesamt Netto:', sumLabelX, currentY, helvetica, 9, blackText);
+  drawRightAlignedText(page, formatCurrency(totals.netTotal, currency), sumValueX, currentY, helvetica, 9, blackText);
+  currentY -= 14;
+
+  // Umsatzsteuer-Zeilen
+  const sortedTaxRates = Array.from(totals.taxAmounts.entries()).sort((a, b) => a[0] - b[0]);
+  for (const [rate, amount] of sortedTaxRates) {
+    drawRightAlignedText(page, `${rate}% Umsatzsteuer:`, sumLabelX, currentY, helvetica, 9, blackText);
+    drawRightAlignedText(page, formatCurrency(amount, currency), sumValueX, currentY, helvetica, 9, blackText);
+    currentY -= 14;
+  }
+
+  currentY -= 6;
+
+  // Rechnungsbetrag mit Linie
+  const rechnungsbetragLabel = 'Rechnungsbetrag:';
+  const rechnungsbetragLabelWidth = helveticaBold.widthOfTextAtSize(rechnungsbetragLabel, 11);
+  drawLine(page, sumLabelX - rechnungsbetragLabelWidth, currentY + 4, sumValueX, currentY + 4, 1, blackText);
+  drawRightAlignedText(page, rechnungsbetragLabel, sumLabelX, currentY - 8, helveticaBold, 11, blackText);
+  drawRightAlignedText(page, formatCurrency(totals.grossTotal, currency), sumValueX, currentY - 8, helveticaBold, 11, blackText);
+
+  currentY -= 40;
+
+  // === HINWEISE ===
+  if (invoiceData.notes) {
+    drawText(page, 'HINWEISE', margin, currentY, helveticaBold, 11, grayText);
+    currentY -= 16;
+    drawText(page, invoiceData.notes, margin, currentY, helvetica, 9, blackText);
+    currentY -= 20;
+  }
+
+  // === FOOTER ===
+  const footerY = 60;
+
+  // Trennlinie
+  drawLine(page, margin, footerY + 15, pageWidth - margin, footerY + 15, 0.5, lineGray);
+
+  // Spalte 1: Adresse
+  const footerCol1X = margin;
+  let footerLineY = footerY;
+  drawText(page, invoiceData.sender.name, footerCol1X, footerLineY, helvetica, 8, grayText);
+  footerLineY -= 10;
+  drawText(page, invoiceData.sender.street, footerCol1X, footerLineY, helvetica, 8, grayText);
+  footerLineY -= 10;
+  drawText(page, `${invoiceData.sender.postalCode} ${invoiceData.sender.city}`, footerCol1X, footerLineY, helvetica, 8, grayText);
+  footerLineY -= 10;
+  if (invoiceData.sender.country) {
+    drawText(page, invoiceData.sender.country, footerCol1X, footerLineY, helvetica, 8, grayText);
+    footerLineY -= 10;
+  }
+  if (invoiceData.sender.email) {
+    drawText(page, invoiceData.sender.email, footerCol1X, footerLineY, helvetica, 8, grayText);
+  }
+
+  // Spalte 2: Steuernummern
+  const footerCol2X = margin + 180;
+  footerLineY = footerY;
+  if (invoiceData.taxIdentifiers.ustIdNr) {
+    drawText(page, `USt.-IdNr.: ${invoiceData.taxIdentifiers.ustIdNr}`, footerCol2X, footerLineY, helvetica, 8, grayText);
+    footerLineY -= 10;
+  }
+  if (invoiceData.taxIdentifiers.steuernummer) {
+    drawText(page, `Steuernummer: ${invoiceData.taxIdentifiers.steuernummer}`, footerCol2X, footerLineY, helvetica, 8, grayText);
+  }
+
+  // Spalte 3: Bankverbindung
+  const footerCol3X = margin + 360;
+  footerLineY = footerY;
+  drawText(page, invoiceData.bankDetails.bankName, footerCol3X, footerLineY, helvetica, 8, grayText);
+  footerLineY -= 10;
+  drawText(page, `IBAN: ${invoiceData.bankDetails.iban}`, footerCol3X, footerLineY, helvetica, 8, grayText);
+  footerLineY -= 10;
+  drawText(page, `BIC: ${invoiceData.bankDetails.bic}`, footerCol3X, footerLineY, helvetica, 8, grayText);
+  footerLineY -= 10;
+  if (invoiceData.bankDetails.accountHolder) {
+    drawText(page, invoiceData.bankDetails.accountHolder, footerCol3X, footerLineY, helvetica, 8, grayText);
+  }
+
+  // PDF als Buffer zurückgeben
+  const pdfBytes = await pdfDoc.save();
+  return Buffer.from(pdfBytes);
 }
 
 /**
