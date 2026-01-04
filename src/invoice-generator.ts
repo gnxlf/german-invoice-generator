@@ -1,6 +1,5 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import PdfPrinter from 'pdfmake';
 import type { TDocumentDefinitions, Content, TableCell, StyleDictionary } from 'pdfmake/interfaces';
 import { InvoiceData, InvoiceTotals, LineItem, ShippingCost } from './types';
 
@@ -541,20 +540,6 @@ function validateInvoiceData(invoiceData: InvoiceData): void {
 }
 
 /**
- * Creates a configured PdfPrinter instance with standard fonts.
- */
-function createPdfPrinter(): InstanceType<typeof PdfPrinter> {
-  return new PdfPrinter({
-    Roboto: {
-      normal: 'Helvetica',
-      bold: 'Helvetica-Bold',
-      italics: 'Helvetica-Oblique',
-      bolditalics: 'Helvetica-BoldOblique',
-    },
-  });
-}
-
-/**
  * Generates an invoice PDF and returns it as a Buffer.
  * Ideal for serverless environments (Vercel, AWS Lambda, etc.) where filesystem access is limited.
  * 
@@ -575,8 +560,23 @@ function createPdfPrinter(): InstanceType<typeof PdfPrinter> {
 export async function generateInvoiceBuffer(invoiceData: InvoiceData): Promise<Buffer> {
   validateInvoiceData(invoiceData);
 
-  const printer = createPdfPrinter();
+  // Dynamischer Import - verhindert data.trie Laden beim Modul-Import
+  const PdfPrinter = (await import('pdfmake')).default;
+
+  const printer = new PdfPrinter({
+    Roboto: {
+      normal: 'Helvetica',
+      bold: 'Helvetica-Bold',
+      italics: 'Helvetica-Oblique',
+      bolditalics: 'Helvetica-BoldOblique',
+    },
+  });
+
   const docDefinition = generateDocumentDefinition(invoiceData);
+
+  // Hyphenation deaktivieren (verhindert data.trie Fehler in serverless Umgebungen)
+  (docDefinition as any).hyphenationCallback = (word: string) => [word];
+
   const pdfDoc = printer.createPdfKitDocument(docDefinition);
 
   return new Promise((resolve, reject) => {
