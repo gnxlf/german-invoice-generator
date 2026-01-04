@@ -84,9 +84,9 @@ import { generateInvoiceBuffer, InvoiceData } from "custom-invoice-generator";
 // Next.js API Route (App Router)
 export async function POST(request: Request) {
     const invoiceData: InvoiceData = await request.json();
-    
+
     const pdfBuffer = await generateInvoiceBuffer(invoiceData);
-    
+
     return new Response(pdfBuffer, {
         headers: {
             "Content-Type": "application/pdf",
@@ -100,7 +100,7 @@ export async function POST(request: Request) {
 // Express.js
 app.post("/api/invoice", async (req, res) => {
     const pdfBuffer = await generateInvoiceBuffer(req.body);
-    
+
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", "attachment; filename=rechnung.pdf");
     res.send(pdfBuffer);
@@ -112,7 +112,7 @@ app.post("/api/invoice", async (req, res) => {
 export const handler = async (event: APIGatewayEvent) => {
     const invoiceData = JSON.parse(event.body || "{}");
     const pdfBuffer = await generateInvoiceBuffer(invoiceData);
-    
+
     return {
         statusCode: 200,
         headers: {
