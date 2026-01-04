@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 
 import * as path from 'path';
-import { generateInvoice, loadInvoiceFromFile } from './invoice-generator';
+import { generateInvoice, generateInvoiceBuffer, loadInvoiceFromFile } from './invoice-generator';
+
+// Re-export for library usage
+export { generateInvoice, generateInvoiceBuffer, loadInvoiceFromFile } from './invoice-generator';
+export * from './types';
 
 async function main(): Promise<void> {
   console.log('German Invoice PDF Generator');

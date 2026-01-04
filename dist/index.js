@@ -33,9 +33,19 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __exportStar = (this && this.__exportStar) || function(m, exports) {
+    for (var p in m) if (p !== "default" && !Object.prototype.hasOwnProperty.call(exports, p)) __createBinding(exports, m, p);
+};
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.loadInvoiceFromFile = exports.generateInvoiceBuffer = exports.generateInvoice = void 0;
 const path = __importStar(require("path"));
 const invoice_generator_1 = require("./invoice-generator");
+// Re-export for library usage
+var invoice_generator_2 = require("./invoice-generator");
+Object.defineProperty(exports, "generateInvoice", { enumerable: true, get: function () { return invoice_generator_2.generateInvoice; } });
+Object.defineProperty(exports, "generateInvoiceBuffer", { enumerable: true, get: function () { return invoice_generator_2.generateInvoiceBuffer; } });
+Object.defineProperty(exports, "loadInvoiceFromFile", { enumerable: true, get: function () { return invoice_generator_2.loadInvoiceFromFile; } });
+__exportStar(require("./types"), exports);
 async function main() {
     console.log('German Invoice PDF Generator');
     console.log('================================\n');

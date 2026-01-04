@@ -526,7 +526,11 @@ function generateDocumentDefinition(invoiceData: InvoiceData): TDocumentDefiniti
   return docDefinition;
 }
 
-export async function generateInvoice(invoiceData: InvoiceData, outputPath?: string): Promise<string> {
+/**
+ * Validates invoice data for German compliance requirements.
+ * @throws Error if validation fails
+ */
+function validateInvoiceData(invoiceData: InvoiceData): void {
   if (!invoiceData.taxIdentifiers.steuernummer && !invoiceData.taxIdentifiers.ustIdNr) {
     throw new Error('At least one tax identifier (Steuernummer or USt-IdNr.) is required for German compliance');
   }
@@ -534,10 +538,13 @@ export async function generateInvoice(invoiceData: InvoiceData, outputPath?: str
   if (invoiceData.lineItems.length === 0) {
     throw new Error('At least one line item is required');
   }
+}
 
-  const filename = outputPath || `Rechnung_${invoiceData.invoiceNumber.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
-
-  const printer = new PdfPrinter({
+/**
+ * Creates a configured PdfPrinter instance with standard fonts.
+ */
+function createPdfPrinter(): InstanceType<typeof PdfPrinter> {
+  return new PdfPrinter({
     Roboto: {
       normal: 'Helvetica',
       bold: 'Helvetica-Bold',
@@ -545,7 +552,30 @@ export async function generateInvoice(invoiceData: InvoiceData, outputPath?: str
       bolditalics: 'Helvetica-BoldOblique',
     },
   });
+}
 
+/**
+ * Generates an invoice PDF and returns it as a Buffer.
+ * Ideal for serverless environments (Vercel, AWS Lambda, etc.) where filesystem access is limited.
+ * 
+ * @param invoiceData - The invoice data to generate the PDF from
+ * @returns Promise resolving to a Buffer containing the PDF data
+ * @throws Error if invoice data validation fails
+ * 
+ * @example
+ * // In a serverless API route (e.g., Vercel/Next.js)
+ * const buffer = await generateInvoiceBuffer(invoiceData);
+ * return new Response(buffer, {
+ *   headers: {
+ *     'Content-Type': 'application/pdf',
+ *     'Content-Disposition': 'attachment; filename="invoice.pdf"'
+ *   }
+ * });
+ */
+export async function generateInvoiceBuffer(invoiceData: InvoiceData): Promise<Buffer> {
+  validateInvoiceData(invoiceData);
+
+  const printer = createPdfPrinter();
   const docDefinition = generateDocumentDefinition(invoiceData);
   const pdfDoc = printer.createPdfKitDocument(docDefinition);
 
@@ -558,9 +588,7 @@ export async function generateInvoice(invoiceData: InvoiceData, outputPath?: str
 
     pdfDoc.on('end', () => {
       const pdfBuffer = Buffer.concat(chunks);
-      fs.writeFileSync(filename, pdfBuffer);
-      console.log(`✅ Invoice PDF generated successfully: ${filename}`);
-      resolve(filename);
+      resolve(pdfBuffer);
     });
 
     pdfDoc.on('error', (error: Error) => {
@@ -569,6 +597,25 @@ export async function generateInvoice(invoiceData: InvoiceData, outputPath?: str
 
     pdfDoc.end();
   });
+}
+
+/**
+ * Generates an invoice PDF and saves it to the filesystem.
+ * For serverless environments, use `generateInvoiceBuffer()` instead.
+ * 
+ * @param invoiceData - The invoice data to generate the PDF from
+ * @param outputPath - Optional custom output path. If not provided, generates filename from invoice number
+ * @returns Promise resolving to the path where the PDF was saved
+ * @throws Error if invoice data validation fails or file cannot be written
+ */
+export async function generateInvoice(invoiceData: InvoiceData, outputPath?: string): Promise<string> {
+  const filename = outputPath || `Rechnung_${invoiceData.invoiceNumber.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+  
+  const pdfBuffer = await generateInvoiceBuffer(invoiceData);
+  fs.writeFileSync(filename, pdfBuffer);
+  console.log(`✅ Invoice PDF generated successfully: ${filename}`);
+  
+  return filename;
 }
 
 export function loadInvoiceFromFile(filePath: string): InvoiceData {
