@@ -1,4 +1,5 @@
 {
+  "language": "en",
   "invoiceNumber": "RE-000001",
   "orderNumber": "ABC123XY",
   "issueDate": "2025-12-29",
@@ -9,7 +10,7 @@
     "street": "Musterstraße 123",
     "postalCode": "12345",
     "city": "Musterstadt",
-    "country": "Deutschland",
+    "country": "Germany",
     "email": "kontakt@beispiel.de"
   },
   
@@ -19,7 +20,7 @@
     "street": "Beispielweg 456",
     "postalCode": "67890",
     "city": "Beispielort",
-    "country": "Deutschland"
+    "country": "Germany"
   },
   
   "taxIdentifiers": {
