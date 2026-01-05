@@ -53,6 +53,8 @@ export interface LogoConfig {
   maxHeight?: number;
 }
 
+export type Language = 'de' | 'en';
+
 export interface InvoiceData {
   language?: Language;
   invoiceNumber: string;
@@ -78,8 +80,6 @@ export interface ShippingCost {
   amount: number;
   description?: string;
 }
-
-export type Language = 'de' | 'en';
 
 // Unit translations mapping
 export const unitTranslations: Record<string, Record<Language, string>> = {
