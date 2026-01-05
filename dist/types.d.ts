@@ -46,7 +46,9 @@ export interface LogoConfig {
     maxWidth?: number;
     maxHeight?: number;
 }
+export type Language = 'de' | 'en';
 export interface InvoiceData {
+    language?: Language;
     invoiceNumber: string;
     orderNumber?: string;
     issueDate: string;
@@ -69,6 +71,31 @@ export interface ShippingCost {
     amount: number;
     description?: string;
 }
+export declare const unitTranslations: Record<string, Record<Language, string>>;
+export declare function translateUnit(unit: string, language: Language): string;
+export interface Translations {
+    invoice: string;
+    invoiceNumber: string;
+    orderNumber: string;
+    invoiceDate: string;
+    deliveryDate: string;
+    position: string;
+    description: string;
+    quantity: string;
+    unit: string;
+    unitPrice: string;
+    vat: string;
+    totalGross: string;
+    totalNet: string;
+    vatAmount: string;
+    invoiceTotal: string;
+    notes: string;
+    vatId: string;
+    taxNumber: string;
+    iban: string;
+    bic: string;
+}
+export declare const translations: Record<Language, Translations>;
 export interface InvoiceTotals {
     itemsGrossTotal: number;
     netTotal: number;

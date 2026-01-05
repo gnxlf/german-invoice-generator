@@ -42,6 +42,7 @@ exports.loadInvoiceFromFile = loadInvoiceFromFile;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const pdf_lib_1 = require("pdf-lib");
+const types_1 = require("./types");
 // Farben als RGB-Werte (0-1)
 function hexToRgb(hex) {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -53,22 +54,35 @@ function hexToRgb(hex) {
         b: parseInt(result[3], 16) / 255,
     };
 }
-function formatCurrency(amount, currency = 'EUR') {
-    return new Intl.NumberFormat('de-DE', {
-        style: 'currency',
-        currency: currency,
+function formatCurrency(amount, currency = 'EUR', language = 'de') {
+    // Format number with German locale (uses comma as decimal separator)
+    const formattedNumber = new Intl.NumberFormat('de-DE', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
     }).format(amount);
+    // Currency symbol at the end (European style)
+    const currencySymbol = currency === 'EUR' ? '€' : currency;
+    return `${formattedNumber} ${currencySymbol}`;
 }
-function formatDate(dateStr) {
-    if (/^\d{2}\.\d{2}\.\d{4}/.test(dateStr)) {
+function formatDate(dateStr, language = 'de') {
+    // If already in DD.MM.YYYY format, return as-is
+    if (/^\d{2}\.\d{2}\.\d{4}$/.test(dateStr)) {
         return dateStr;
     }
-    const date = new Date(dateStr);
-    return date.toLocaleDateString('de-DE', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-    });
+    // Parse ISO date (YYYY-MM-DD) or other formats
+    let date;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        const [year, month, day] = dateStr.split('-').map(Number);
+        date = new Date(year, month - 1, day);
+    }
+    else {
+        date = new Date(dateStr);
+    }
+    // Always output DD.MM.YYYY format
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}.${month}.${year}`;
 }
 function getDominantTaxRate(lineItems) {
     const grossByTaxRate = new Map();
@@ -254,6 +268,8 @@ function validateInvoiceData(invoiceData) {
 async function generateInvoiceBuffer(invoiceData) {
     validateInvoiceData(invoiceData);
     const currency = invoiceData.currency || 'EUR';
+    const language = invoiceData.language || 'de';
+    const t = types_1.translations[language];
     const totals = calculateTotals(invoiceData.lineItems, invoiceData.shipping);
     // PDF Dokument erstellen
     const pdfDoc = await pdf_lib_1.PDFDocument.create();
@@ -297,7 +313,7 @@ async function generateInvoiceBuffer(invoiceData) {
         }
     }
     // === HEADER: RECHNUNG ===
-    drawText(page, 'RECHNUNG', margin, currentY - 20, helvetica, 28, blackText);
+    drawText(page, t.invoice, margin, currentY - 20, helvetica, 28, blackText);
     currentY -= 80; // Mehr Abstand nach dem Logo
     // === ABSENDER-ZEILE (klein) ===
     const senderLine = `${invoiceData.sender.name} · ${invoiceData.sender.street} · ${invoiceData.sender.postalCode} ${invoiceData.sender.city}`;
@@ -324,22 +340,22 @@ async function generateInvoiceBuffer(invoiceData) {
     const metaValueX = pageWidth - margin;
     let metaY = pageHeight - margin - 60;
     // Rechnungsnummer
-    drawText(page, 'Rechnungsnummer:', metaLabelX, metaY, helvetica, 9, grayText);
+    drawText(page, t.invoiceNumber, metaLabelX, metaY, helvetica, 9, grayText);
     drawRightAlignedText(page, invoiceData.invoiceNumber, metaValueX, metaY, helveticaBold, 9, blackText);
     metaY -= 14;
     // Bestellnummer (optional)
     if (invoiceData.orderNumber) {
-        drawText(page, 'Bestellnummer:', metaLabelX, metaY, helvetica, 9, grayText);
+        drawText(page, t.orderNumber, metaLabelX, metaY, helvetica, 9, grayText);
         drawRightAlignedText(page, invoiceData.orderNumber, metaValueX, metaY, helveticaBold, 9, blackText);
         metaY -= 14;
     }
     // Rechnungsdatum
-    drawText(page, 'Rechnungsdatum:', metaLabelX, metaY, helvetica, 9, grayText);
-    drawRightAlignedText(page, formatDate(invoiceData.issueDate), metaValueX, metaY, helveticaBold, 9, blackText);
+    drawText(page, t.invoiceDate, metaLabelX, metaY, helvetica, 9, grayText);
+    drawRightAlignedText(page, formatDate(invoiceData.issueDate, language), metaValueX, metaY, helveticaBold, 9, blackText);
     metaY -= 14;
     // Lieferdatum
-    drawText(page, 'Lieferdatum:', metaLabelX, metaY, helvetica, 9, grayText);
-    drawRightAlignedText(page, invoiceData.deliveryDate, metaValueX, metaY, helveticaBold, 9, blackText);
+    drawText(page, t.deliveryDate, metaLabelX, metaY, helvetica, 9, grayText);
+    drawRightAlignedText(page, formatDate(invoiceData.deliveryDate, language), metaValueX, metaY, helveticaBold, 9, blackText);
     currentY -= 40;
     // === TABELLE ===
     // Spaltenbreiten definieren
@@ -355,13 +371,13 @@ async function generateInvoiceBuffer(invoiceData) {
     drawRect(page, margin, currentY - headerHeight, contentWidth, headerHeight, lightGrayBg);
     // Header-Texte
     const headerY = currentY - 18;
-    drawText(page, 'Pos.', colX[0] + 5, headerY, helveticaBold, 9, grayText);
-    drawText(page, 'Beschreibung', colX[1] + 5, headerY, helveticaBold, 9, grayText);
-    drawRightAlignedText(page, 'Menge', colX[2] + colWidths[2] - 5, headerY, helveticaBold, 9, grayText);
-    drawText(page, 'Einheit', colX[3] + 5, headerY, helveticaBold, 9, grayText);
-    drawRightAlignedText(page, 'Einzelpreis', colX[4] + colWidths[4] - 5, headerY, helveticaBold, 9, grayText);
-    drawRightAlignedText(page, 'USt.', colX[5] + colWidths[5] - 5, headerY, helveticaBold, 9, grayText);
-    drawRightAlignedText(page, 'Gesamt (brutto)', colX[6] + colWidths[6] - 5, headerY, helveticaBold, 9, grayText);
+    drawText(page, t.position, colX[0] + 5, headerY, helveticaBold, 9, grayText);
+    drawText(page, t.description, colX[1] + 5, headerY, helveticaBold, 9, grayText);
+    drawRightAlignedText(page, t.quantity, colX[2] + colWidths[2] - 5, headerY, helveticaBold, 9, grayText);
+    drawText(page, t.unit, colX[3] + 5, headerY, helveticaBold, 9, grayText);
+    drawRightAlignedText(page, t.unitPrice, colX[4] + colWidths[4] - 5, headerY, helveticaBold, 9, grayText);
+    drawRightAlignedText(page, t.vat, colX[5] + colWidths[5] - 5, headerY, helveticaBold, 9, grayText);
+    drawRightAlignedText(page, t.totalGross, colX[6] + colWidths[6] - 5, headerY, helveticaBold, 9, grayText);
     currentY -= headerHeight;
     // Header-Linie unten
     drawLine(page, margin, currentY, tableRight, currentY, 1, blackText);
@@ -387,10 +403,10 @@ async function generateInvoiceBuffer(invoiceData) {
             drawText(page, descriptionLines[lineIdx], colX[1] + 5, cellY - (lineIdx * lineHeight), helvetica, 9, blackText);
         }
         drawRightAlignedText(page, item.quantity.toString(), colX[2] + colWidths[2] - 5, cellY, helvetica, 9, blackText);
-        drawText(page, item.unit, colX[3] + 10, cellY, helvetica, 9, blackText);
-        drawRightAlignedText(page, formatCurrency(item.unitPrice, currency), colX[4] + colWidths[4] - 5, cellY, helvetica, 9, blackText);
+        drawText(page, (0, types_1.translateUnit)(item.unit, language), colX[3] + 10, cellY, helvetica, 9, blackText);
+        drawRightAlignedText(page, formatCurrency(item.unitPrice, currency, language), colX[4] + colWidths[4] - 5, cellY, helvetica, 9, blackText);
         drawRightAlignedText(page, `${item.taxRate}%`, colX[5] + colWidths[5] - 5, cellY, helvetica, 9, blackText);
-        drawRightAlignedText(page, formatCurrency(lineGross, currency), colX[6] + colWidths[6] - 5, cellY, helvetica, 9, blackText);
+        drawRightAlignedText(page, formatCurrency(lineGross, currency, language), colX[6] + colWidths[6] - 5, cellY, helvetica, 9, blackText);
         currentY -= dynamicRowHeight;
         // Hellgrauer Trennstrich zwischen Zeilen (nicht nach der letzten)
         if (i < invoiceData.lineItems.length - 1) {
@@ -405,33 +421,33 @@ async function generateInvoiceBuffer(invoiceData) {
     const sumValueX = colX[6] + colWidths[6] - 5;
     // Versandkosten (falls vorhanden)
     if (totals.shipping.gross > 0) {
-        const shippingDescription = invoiceData.shipping?.description || 'Versandkosten';
+        const shippingDescription = invoiceData.shipping?.description || (language === 'de' ? 'Versandkosten' : 'Shipping');
         drawRightAlignedText(page, `${shippingDescription}:`, sumLabelX, currentY, helvetica, 9, blackText);
-        drawRightAlignedText(page, formatCurrency(totals.shipping.gross, currency), sumValueX, currentY, helvetica, 9, blackText);
+        drawRightAlignedText(page, formatCurrency(totals.shipping.gross, currency, language), sumValueX, currentY, helvetica, 9, blackText);
         currentY -= 14;
     }
     // Gesamt Netto
-    drawRightAlignedText(page, 'Gesamt Netto:', sumLabelX, currentY, helvetica, 9, blackText);
-    drawRightAlignedText(page, formatCurrency(totals.netTotal, currency), sumValueX, currentY, helvetica, 9, blackText);
+    drawRightAlignedText(page, t.totalNet, sumLabelX, currentY, helvetica, 9, blackText);
+    drawRightAlignedText(page, formatCurrency(totals.netTotal, currency, language), sumValueX, currentY, helvetica, 9, blackText);
     currentY -= 14;
     // Umsatzsteuer-Zeilen
     const sortedTaxRates = Array.from(totals.taxAmounts.entries()).sort((a, b) => a[0] - b[0]);
     for (const [rate, amount] of sortedTaxRates) {
-        drawRightAlignedText(page, `${rate}% Umsatzsteuer:`, sumLabelX, currentY, helvetica, 9, blackText);
-        drawRightAlignedText(page, formatCurrency(amount, currency), sumValueX, currentY, helvetica, 9, blackText);
+        drawRightAlignedText(page, `${rate}% ${t.vatAmount}`, sumLabelX, currentY, helvetica, 9, blackText);
+        drawRightAlignedText(page, formatCurrency(amount, currency, language), sumValueX, currentY, helvetica, 9, blackText);
         currentY -= 14;
     }
     currentY -= 6;
     // Rechnungsbetrag mit Linie
-    const rechnungsbetragLabel = 'Rechnungsbetrag:';
+    const rechnungsbetragLabel = t.invoiceTotal;
     const rechnungsbetragLabelWidth = helveticaBold.widthOfTextAtSize(rechnungsbetragLabel, 11);
     drawLine(page, sumLabelX - rechnungsbetragLabelWidth, currentY + 4, sumValueX, currentY + 4, 1, blackText);
     drawRightAlignedText(page, rechnungsbetragLabel, sumLabelX, currentY - 8, helveticaBold, 11, blackText);
-    drawRightAlignedText(page, formatCurrency(totals.grossTotal, currency), sumValueX, currentY - 8, helveticaBold, 11, blackText);
+    drawRightAlignedText(page, formatCurrency(totals.grossTotal, currency, language), sumValueX, currentY - 8, helveticaBold, 11, blackText);
     currentY -= 40;
     // === HINWEISE ===
     if (invoiceData.notes) {
-        drawText(page, 'HINWEISE', margin, currentY, helveticaBold, 11, grayText);
+        drawText(page, t.notes, margin, currentY, helveticaBold, 11, grayText);
         currentY -= 16;
         drawText(page, invoiceData.notes, margin, currentY, helvetica, 9, blackText);
         currentY -= 20;
@@ -460,20 +476,20 @@ async function generateInvoiceBuffer(invoiceData) {
     const footerCol2X = margin + 180;
     footerLineY = footerY;
     if (invoiceData.taxIdentifiers.ustIdNr) {
-        drawText(page, `USt.-IdNr.: ${invoiceData.taxIdentifiers.ustIdNr}`, footerCol2X, footerLineY, helvetica, 8, grayText);
+        drawText(page, `${t.vatId} ${invoiceData.taxIdentifiers.ustIdNr}`, footerCol2X, footerLineY, helvetica, 8, grayText);
         footerLineY -= 10;
     }
     if (invoiceData.taxIdentifiers.steuernummer) {
-        drawText(page, `Steuernummer: ${invoiceData.taxIdentifiers.steuernummer}`, footerCol2X, footerLineY, helvetica, 8, grayText);
+        drawText(page, `${t.taxNumber} ${invoiceData.taxIdentifiers.steuernummer}`, footerCol2X, footerLineY, helvetica, 8, grayText);
     }
     // Spalte 3: Bankverbindung
     const footerCol3X = margin + 360;
     footerLineY = footerY;
     drawText(page, invoiceData.bankDetails.bankName, footerCol3X, footerLineY, helvetica, 8, grayText);
     footerLineY -= 10;
-    drawText(page, `IBAN: ${invoiceData.bankDetails.iban}`, footerCol3X, footerLineY, helvetica, 8, grayText);
+    drawText(page, `${t.iban} ${invoiceData.bankDetails.iban}`, footerCol3X, footerLineY, helvetica, 8, grayText);
     footerLineY -= 10;
-    drawText(page, `BIC: ${invoiceData.bankDetails.bic}`, footerCol3X, footerLineY, helvetica, 8, grayText);
+    drawText(page, `${t.bic} ${invoiceData.bankDetails.bic}`, footerCol3X, footerLineY, helvetica, 8, grayText);
     footerLineY -= 10;
     if (invoiceData.bankDetails.accountHolder) {
         drawText(page, invoiceData.bankDetails.accountHolder, footerCol3X, footerLineY, helvetica, 8, grayText);
@@ -492,7 +508,9 @@ async function generateInvoiceBuffer(invoiceData) {
  * @throws Error if invoice data validation fails or file cannot be written
  */
 async function generateInvoice(invoiceData, outputPath) {
-    const filename = outputPath || `Rechnung_${invoiceData.invoiceNumber.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+    const language = invoiceData.language || 'de';
+    const prefix = language === 'de' ? 'Rechnung' : 'Invoice';
+    const filename = outputPath || `${prefix}_${invoiceData.invoiceNumber.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
     const pdfBuffer = await generateInvoiceBuffer(invoiceData);
     fs.writeFileSync(filename, pdfBuffer);
     console.log(`✅ Invoice PDF generated successfully: ${filename}`);

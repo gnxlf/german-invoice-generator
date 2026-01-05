@@ -1,6 +1,6 @@
 {
   "name": "german-invoice-generator",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "TypeScript-based PDF generator for legally compliant German invoices according to §14 UStG",
   "main": "dist/invoice-generator.js",
   "types": "dist/invoice-generator.d.ts",
