@@ -15,8 +15,9 @@
   },
   
   "recipient": {
-    "name": "Beispiel Firma GmbH",
-    "addressLine2": "",
+    "name": "Max Mustermann",
+    "company": "Beispiel Firma GmbH",
+    "addressLine2": "Lagerhalle",
     "street": "Beispielweg 456",
     "postalCode": "67890",
     "city": "Beispielort",

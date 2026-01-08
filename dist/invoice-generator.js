@@ -322,6 +322,10 @@ async function generateInvoiceBuffer(invoiceData) {
     // === EMPFÄNGER ===
     drawText(page, invoiceData.recipient.name, margin, currentY, helveticaBold, 11, blackText);
     currentY -= 14;
+    if (invoiceData.recipient.company) {
+        drawText(page, invoiceData.recipient.company, margin, currentY, helvetica, 11, blackText);
+        currentY -= 14;
+    }
     if (invoiceData.recipient.addressLine2) {
         drawText(page, invoiceData.recipient.addressLine2, margin, currentY, helvetica, 11, blackText);
         currentY -= 14;

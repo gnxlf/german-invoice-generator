@@ -11,6 +11,7 @@ export interface SenderDetails {
 
 export interface RecipientDetails {
   name: string;
+  company?: string;
   addressLine2?: string;
   street: string;
   postalCode: string;
